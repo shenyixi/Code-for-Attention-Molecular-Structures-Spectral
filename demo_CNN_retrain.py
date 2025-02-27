@@ -135,13 +135,13 @@ if __name__ == '__main__':
                     for j in range(i + 1, len(sorted_preds)):
                         #loss += torch.relu(sorted_preds[j] - sorted_preds[i])
 
-                        loss += torch.relu(torch.relu(sorted_preds[i]) - sorted_preds[j]+9*(j-i))
+                        loss += torch.relu(torch.relu(sorted_preds[i]) - sorted_preds[j]+(j-i))
 
                         print(i)
                         print(f"{sorted_preds[i].item()}")
                         print(j)
                         print(f" {sorted_preds[j].item()}")
-                        print(f" {torch.relu(sorted_preds[i] - sorted_preds[j]+9*(j-i))}")
+                        print(f" {torch.relu(sorted_preds[i] - sorted_preds[j]+(j-i))}")
                         #print(f"{loss.item()}")
                 #print("loss is#######################:", loss)
 
