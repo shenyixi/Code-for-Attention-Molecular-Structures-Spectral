@@ -18,3 +18,9 @@ pip install -U --no-cache-dir \
 cd code
 python demo_CNN_train.py
 ```
+
+## 3.Retrain
+```bash
+cd code
+python demo_CNN_retrain.py
+```
