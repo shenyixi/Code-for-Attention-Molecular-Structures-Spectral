@@ -1,0 +1,2 @@
+net_mean_loss_58.6649.pth filter=lfs diff=lfs merge=lfs -text
+sign_minmax_4400.csv filter=lfs diff=lfs merge=lfs -text
