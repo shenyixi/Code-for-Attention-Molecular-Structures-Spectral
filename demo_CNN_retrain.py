@@ -113,13 +113,6 @@ if __name__ == '__main__':
                 #Fre_value_batch=Fre_value_batch.cuda()
 
             predict, w_1, w_2 = net(img_batch)
-            #print(type(predict))
-            #print(predict.size())
-            #print(type(mol_kind_batch))
-            #print(label_batch)
-
-            #print(predict)
-            #print(mol_kind_batch)
 
             try:
                 # 打印调试信息
@@ -143,7 +136,6 @@ if __name__ == '__main__':
                         print(f" {sorted_preds[j].item()}")
                         print(f" {torch.relu(sorted_preds[i] - sorted_preds[j]+(j-i))}")
                         #print(f"{loss.item()}")
-                #print("loss is#######################:", loss)
 
 
             except:
@@ -174,23 +166,11 @@ if __name__ == '__main__':
                 #Fre_value_batch=Fre_value_batch.cuda()
 
             predict, w_1, w_2 = net(img_batch)
-###########################################################################################
-            #_, sorted_indices = torch.sort(mol_kind_batch.squeeze())
-            #sorted_preds = predict[sorted_indices]
-
-            #loss = 0
-            #for i in range(len(sorted_preds)):
-            #    for j in range(i + 1, len(sorted_preds)):
-
-            #        loss += torch.relu(torch.relu(sorted_preds[i]) - sorted_preds[j]+8*(j-i))
 
             loss = loss_func(predict, mol_kind_batch)
 
-            #predict = predict.argmax(dim=1)
             total_loss.append(loss)
 
-
-        ###net.train()
         print("total_loss.__len__():",total_loss.__len__())
         mean_loss = sum(total_loss) / total_loss.__len__()
 
