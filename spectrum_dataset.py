@@ -31,23 +31,16 @@ class SpectrumDataset(Dataset):
 
     def _load_from_csv(self, fp: str):
         df = pd.read_csv(fp,header=None)  ##header=None之前没有注意
-        #transfer_data_new = df.sample(frac=1, random_state=1).reset_index(drop=True)
+
         transfer_data_new =df.sample(frac=1, random_state=self.random_state).reset_index(drop=True)
-        #random_rows = transfer_data_new.sample(n=10, random_state=17)
-        #total_transfer = 500
-        #len_transfer=19
-        # df = df.sample(1)
+
         if self.train_or_test == 'train':
-            #train_data = transfer_data_new.iloc[0:int(total_transfer * 0.8)]
-            #new_train_data=train_data.iloc[0:int(len_transfer * 0.8)]
-            #new_train_data = transfer_data_new.iloc[0:10]
+
             new_train_data = transfer_data_new.iloc[0:10]
             return new_train_data
 
         elif self.train_or_test == 'test':
-            #test_data = transfer_data_new.iloc[int(total_transfer * 0.8):]
-            #new_test_data=test_data.iloc[0:int(len_transfer * 0.2)]
-            #new_test_data = transfer_data_new.iloc[10:19]
+
             new_test_data = transfer_data_new.iloc[10:20]
             return new_test_data
         else:
