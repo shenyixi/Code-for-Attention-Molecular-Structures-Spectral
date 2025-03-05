@@ -24,3 +24,8 @@ python demo_CNN_train.py
 cd code
 python demo_CNN_retrain.py
 ```
+
+Data
+sign_minmax_4400.csv: Preprocessed IR and Raman spectra used for training.
+
+IR_Raman_azo.csv: IR and Raman spectra used for transfer learning.
