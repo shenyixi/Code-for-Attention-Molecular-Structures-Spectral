@@ -12,7 +12,7 @@ class SpectrumDataset(Dataset):
         super().__init__()
         self.train_or_test = train_or_test
         self.random_state = random_state
-        self.data_df = self._load_from_csv('/home/shenyx/Data/Project1_ModelTest/Experiment/transfer_azo/IR_Raman_azo.csv')
+        self.data_df = self._load_from_csv('../IR_Raman_azo.csv')
          
     def __getitem__(self, index):
         x = torch.tensor(self.data_df.iloc[index, :self.DATA_COLUMN], dtype=torch.float)
