@@ -130,14 +130,6 @@ if __name__ == '__main__':
 
                         loss += torch.relu(torch.relu(sorted_preds[i]) - sorted_preds[j]+(j-i))
 
-                        print(i)
-                        print(f"{sorted_preds[i].item()}")
-                        print(j)
-                        print(f" {sorted_preds[j].item()}")
-                        print(f" {torch.relu(sorted_preds[i] - sorted_preds[j]+(j-i))}")
-                        #print(f"{loss.item()}")
-
-
             except:
                 #loss = torch.tensor(0.0, requires_grad=True)  # 确保 loss 变量被定义
                 #print(predict)
