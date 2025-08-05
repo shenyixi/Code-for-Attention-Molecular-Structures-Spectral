@@ -1,5 +1,7 @@
 import torch
 import torch.utils.data as data
+import torchvision
+from network import Network
 import torch.nn as nn
 import time
 import random
