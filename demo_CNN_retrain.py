@@ -1,192 +1,226 @@
 import argparse
-import torch
-import torch.utils.data as Data
-import torchvision
-from network_947331_freeze import Network
-from torch import nn
+import os
 import time
 import random
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.optim.lr_scheduler import CosineAnnealingLR
 
-
-from torch.nn import MSELoss
-from torch.utils.data import DataLoader
-from spectrum_dataset import SpectrumDataset
-import pandas as pd
 import numpy as np
-import os
+import pandas as pd
+import torch
+import torch.nn as nn
+from torch.optim import Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import DataLoader
 
-os.environ["CUDA_VISIBLE_DEVICES"] ="2"
+from network_947331_freeze import Network
+from spectrum_dataset import SpectrumDataset
 
-def setup_seed(seed):
+
+# Environment configuration
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+
+
+def setup_seed(seed: int) -> None:
+    """Initialize random seed for reproducibility.
+    
+    Args:
+        seed: Random seed value
+    """
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-# 设置随机数种子
-setup_seed(2)
 
-BATCH_SIZE = 5
 
-if __name__ == '__main__':
-    print('Begin')
-    parser = argparse.ArgumentParser(description='Train and test a network with a specific random state.')
-    parser.add_argument('--random_state', type=int, required=True, help='The random state for shuffling the dataset.')
-    args = parser.parse_args()
-
-    random_state = args.random_state
-
-    # 创建动态的 weights 文件夹名称
-    weights_dir = f'weights{random_state}'
-
-    if os.path.exists(weights_dir):
-        raise Exception(f"文件夹 {weights_dir} 已经存在，请选择其他 random_state 值。")
-    else:
-        os.makedirs(weights_dir)
+def load_pretrained_model(model_dir: str) -> Network:
+    """Load the best pretrained model based on validation loss.
+    
+    Args:
+        model_dir: Directory containing pretrained models
         
-    train_data = SpectrumDataset("train", random_state=random_state)
-    test_data = SpectrumDataset("test", random_state=random_state)
-
-    train_loader = Data.DataLoader(dataset=train_data, batch_size=BATCH_SIZE, shuffle=True)
-    test_loader = Data.DataLoader(dataset=test_data, batch_size=BATCH_SIZE, shuffle=False)
-
-    train_batch_num = len(train_loader)
-    test_batch_num = len(test_loader)
-    ############################################################
-    ###这里负责找预训练好的模型
-    ########这里找到mse最小的模型名称
-    files = os.listdir("pre_weights_training")     ##原来是files = os.listdir("weights_pre_training")
-    filename_pth = []
-    for file in files:
-        if file.endswith(".pth"):
-            filename_pth.append(file)  ##获取文件名名称
-    filename_pth.sort(key=lambda x: float(x[14:-4]))  ###去除末尾.gjf，然后按数字大小进行排序
-
-    dir = "pre_weights_training/" + filename_pth[0]
-
-    old_model = torch.load(dir)
+    Returns:
+        Initialized network with pretrained weights
+    """
+    model_files = [f for f in os.listdir(model_dir) if f.endswith(".pth")]
+    model_files.sort(key=lambda x: float(x[14:-4]))
+    best_model_path = os.path.join(model_dir, model_files[0])
+    
+    pretrained_model = torch.load(best_model_path)
     net = Network()
     net_dict = net.state_dict()
-    pretrained_dict = {k: v for k, v in old_model.state_dict().items() if k in net_dict}  ###将old——model_dict里不属于net_dict的键剔除掉
+    
+    # Filter out unnecessary pretrained weights
+    pretrained_dict = {
+        k: v for k, v in pretrained_model.state_dict().items() 
+        if k in net_dict
+    }
     net_dict.update(pretrained_dict)
     net.load_state_dict(net_dict)
+    
+    return net
 
+
+def main():
+    """Main training procedure with argument parsing."""
+    # Initialize random seed
+    setup_seed(2)
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description='Train network with specific random state.'
+    )
+    parser.add_argument(
+        '--random_state', 
+        type=int, 
+        required=True,
+        help='Random state for dataset shuffling'
+    )
+    args = parser.parse_args()
+
+    # Configuration constants
+    BATCH_SIZE = 5
+    NUM_EPOCHS = 200
+    INITIAL_LR = 0.005
+    PRETRAINED_DIR = "pre_weights_training"
+    
+    # Create output directory
+    weights_dir = f'weights{args.random_state}'
+    if os.path.exists(weights_dir):
+        raise ValueError(
+            f"Directory {weights_dir} already exists. "
+            "Please choose a different random_state value."
+        )
+    os.makedirs(weights_dir)
+
+    # Prepare datasets and loaders
+    train_data = SpectrumDataset("train", random_state=args.random_state)
+    test_data = SpectrumDataset("test", random_state=args.random_state)
+
+    train_loader = DataLoader(
+        dataset=train_data,
+        batch_size=BATCH_SIZE,
+        shuffle=True
+    )
+    test_loader = DataLoader(
+        dataset=test_data,
+        batch_size=BATCH_SIZE,
+        shuffle=False
+    )
+
+    # Initialize network
+    net = load_pretrained_model(PRETRAINED_DIR)
     if torch.cuda.is_available():
-        #net = nn.DataParallel(net)   ##支持多个卡计算
         net.cuda()
-    ################
-    #scaler=amp.GradScaler()
-    ################
-    #opt = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
-    #opt = torch.optim.RMSprop(net.parameters(), lr=0.01)
-    opt = torch.optim.Adam(net.parameters(), lr=0.005)
-    #scheduler = CosineAnnealingLR(opt, T_max=10, eta_min=0, last_epoch=-1)
-    scheduler = ReduceLROnPlateau(opt,mode='min',factor=0.8, patience=10, verbose=False,min_lr=0,eps=1e-08)
 
-    ##loss_func = nn.CrossEntropyLoss()
-    #loss_func = nn.MSELoss()
-    loss_func = nn.L1Loss()
- #####################################
-    tt=[]
- ####################################
-    for epoch_index in range(200):
-        #if epoch_index % 20 == 0:  # 每迭代20次，更新一次学习率
-        #    for params in opt.param_groups:
-        #        # 遍历Optimizer中的每一组参数，将该组参数的学习率 * 0.95
-        #        params['lr'] *= 0.95
-        #        print("lr changed to {}".format(params['lr']))
-        #        # params['weight_decay'] = 0.5  # 当然也可以修改其他属性
-        print(epoch_index, opt.param_groups[0]["lr"])
-        st = time.time()
+    # Initialize optimizer and scheduler
+    optimizer = Adam(net.parameters(), lr=INITIAL_LR)
+    scheduler = ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        factor=0.8,
+        patience=10,
+        verbose=False,
+        min_lr=0,
+        eps=1e-08
+    )
 
-        torch.set_grad_enabled(True)
+    loss_function = nn.L1Loss()
+    loss_history = []
+
+    # Training loop
+    for epoch_idx in range(NUM_EPOCHS):
+        print(f"Epoch {epoch_idx}, LR: {optimizer.param_groups[0]['lr']}")
+        epoch_start = time.time()
+
+        # Training phase
         net.train()
-        for train_batch_index, (img_batch, label_batch,mol_num_batch,Fre_num_batch,Fre_value_batch,mol_kind_batch) in enumerate(train_loader):    ##enumerate（）函数的第一位是train_batch_index，代表着序号
+        torch.set_grad_enabled(True)
+        
+        for batch_idx, (imgs, _, _, _, _, mol_kinds) in enumerate(train_loader):
             if torch.cuda.is_available():
-                img_batch = img_batch.cuda()
-                #label_batch = label_batch.cuda()
-                mol_kind_batch =mol_kind_batch.cuda()
-                #mol_num_batch=mol_num_batch.cuda()
-                #Fre_num_batch=Fre_num_batch.cuda()
-                #Fre_value_batch=Fre_value_batch.cuda()
+                imgs = imgs.cuda()
+                mol_kinds = mol_kinds.cuda()
 
-            predict, w_1, w_2 = net(img_batch)
+            preds, _, _ = net(imgs)
+            
+            # Sort predictions by molecule kind
+            _, sorted_indices = torch.sort(mol_kinds.squeeze())
+            sorted_preds = preds[sorted_indices]
 
-            try:
-                # 打印调试信息
+            # Calculate pairwise ranking loss
+            loss = torch.tensor(0.0, device=imgs.device)
+            for i in range(len(sorted_preds)):
+                for j in range(i + 1, len(sorted_preds)):
+                    loss += torch.relu(
+                        torch.relu(sorted_preds[i]) - sorted_preds[j] + (j - i)
+                    )
 
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-                # 根据 mol_kind_batch 对 predict 进行排序
-                _, sorted_indices = torch.sort(mol_kind_batch.squeeze())
-                sorted_preds = predict[sorted_indices]
+        # Print epoch statistics
+        epoch_time = time.time() - epoch_start
+        print(
+            f"(LR:{optimizer.param_groups[0]['lr']}) "
+            f"Epoch time: {epoch_time:.4f}s"
+        )
 
-                # 计算所有两组不同数据之间的 ReLU 插值
-                loss = 0
-                for i in range(len(sorted_preds)):
-                    for j in range(i + 1, len(sorted_preds)):
-                        #loss += torch.relu(sorted_preds[j] - sorted_preds[i])
-
-                        loss += torch.relu(torch.relu(sorted_preds[i]) - sorted_preds[j]+(j-i))
-
-            except:
-                #loss = torch.tensor(0.0, requires_grad=True)  # 确保 loss 变量被定义
-                #print(predict)
-
-                print("loss is???????????????:", loss)
-            net.zero_grad()
-            loss.backward()    ##反向传播
-            opt.step()         ##反向传播求梯度
-
-
-        print('(LR:%f) Time of a epoch:%.4fs' % (opt.param_groups[0]['lr'], time.time()-st))
-        #scheduler.step()
-        torch.set_grad_enabled(False)
+        # Validation phase
         net.eval()
-        total_loss = []
-        total_acc = 0
-        total_sample = 0
+        torch.set_grad_enabled(False)
+        val_losses = []
 
-        for test_batch_index, (img_batch, label_batch,mol_num_batch,Fre_num_batch,Fre_value_batch,mol_kind_batch) in enumerate(test_loader):
+        for batch_idx, (imgs, _, _, _, _, mol_kinds) in enumerate(test_loader):
             if torch.cuda.is_available():
-                img_batch = img_batch.cuda()
-                #label_batch = label_batch.cuda()
-                mol_kind_batch = mol_kind_batch.cuda()
-                #mol_num_batch=mol_num_batch.cuda()
-                #Fre_num_batch=Fre_num_batch.cuda()
-                #Fre_value_batch=Fre_value_batch.cuda()
+                imgs = imgs.cuda()
+                mol_kinds = mol_kinds.cuda()
 
-            predict, w_1, w_2 = net(img_batch)
+            preds, _, _ = net(imgs)
+            loss = loss_function(preds, mol_kinds)
+            val_losses.append(loss)
 
-            loss = loss_func(predict, mol_kind_batch)
+        # Calculate validation metrics
+        mean_loss = sum(val_losses) / len(val_losses)
+        scheduler.step(mean_loss.item())
 
-            total_loss.append(loss)
+        print(
+            f"Total loss: {sum(val_losses)} "
+            f"Mean loss: {mean_loss:.4f}"
+        )
+        print(
+            f"[Test] Epoch [{epoch_idx}/{NUM_EPOCHS}] "
+            f"Loss: {mean_loss.item():.4f}"
+        )
 
-        print("total_loss.__len__():",total_loss.__len__())
-        mean_loss = sum(total_loss) / total_loss.__len__()
+        # Save model and loss history
+        model_path = os.path.join(
+            weights_dir,
+            f'net_mean_loss_{mean_loss.item():.4f}.pth'
+        )
+        print(f'Saving model to {model_path}\n')
+        torch.save(net, model_path)
 
-        scheduler.step(mean_loss.item())  ##更新学习率
-        #######
-        #tt.append(mean_loss.item())
-        ######
-        print(f"total loss: {sum(total_loss)} len: {len(total_loss)} mean loss: {mean_loss}")
-        print('[Test] epoch[%d/%d] loss:%.4f' % (epoch_index, 200, mean_loss.item()))
+        loss_history.append(mean_loss.item())
+        pd.DataFrame(loss_history).to_csv(
+            os.path.join(weights_dir, 'loss_history.csv'),
+            mode='a',
+            index=False,
+            header=False
+        )
 
-        weight_path = f'{weights_dir}/net_mean_loss_%.4f.pth' % (mean_loss.item())
-        print('Save Net weights to', weight_path, '\n')
+        # Clean up old model files (keep top 2)
+        model_files = [
+            f for f in os.listdir(weights_dir) 
+            if f.endswith(".pth")
+        ]
+        model_files.sort(key=lambda x: float(x[14:-4]))
+        
+        if len(model_files) >= 3:
+            for old_model in model_files[2:]:
+                os.remove(os.path.join(weights_dir, old_model))
 
-        torch.save(net, weight_path) #包括参数和模型
 
-        tt = [mean_loss.item()]
-        loss_tt = pd.DataFrame(tt)
-        loss_tt.to_csv(f'{weights_dir}/tt.csv', mode='a+', index=None, header=None)
-
-        files = os.listdir(weights_dir)
-        filename_pth = [file for file in files if file.endswith(".pth")]
-        filename_pth.sort(key=lambda x: float(x[14:-4]))
-
-        if len(filename_pth) >= 3:
-            for i in range(2, len(filename_pth)):
-                os.remove(f"{weights_dir}/{filename_pth[i]}")
+if __name__ == '__main__':
+    main()
 
