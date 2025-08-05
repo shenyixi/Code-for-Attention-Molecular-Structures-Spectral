@@ -1,94 +1,123 @@
-from torch import nn
 import torch
-# from lib.non_local_concatenation import NONLocalBlock2D
-# from lib.non_local_gaussian import NONLocalBlock2D
+import torch.nn as nn
 from non_local_embedded_gaussian import NONLocalBlock1D
-# from model_lib.non_local_gaussian import NONLocalBlock1D
-#from non_local_gaussian import NONLocalBlock1D
-# from lib.non_local_dot_product import NONLocalBlock2D
 
-#import matplotlib.pyplot as plt
 
-# 冻结网络层
-def freeze(model):
+def freeze_layers(model: nn.Module) -> None:
+    """Freeze all parameters in the given model.
+    
+    Args:
+        model: Neural network module to freeze
+    """
     for param in model.parameters():
         param.requires_grad = False
 
 
 class Network(nn.Module):
-    def __init__(self):
+    """1D Convolutional Neural Network with Non-Local blocks for feature extraction.
+    
+    Architecture:
+        - Three convolutional blocks with increasing channels
+        - Two Non-Local attention blocks
+        - Two fully-connected layers with dropout
+        - Output clamped to [0, 180] range
+    """
+
+    def __init__(self) -> None:
+        """Initialize network layers and freeze initial blocks."""
         super(Network, self).__init__()
 
-        self.conv_1 = nn.Sequential(
-            nn.Conv1d(in_channels=2, out_channels=32, kernel_size=9, stride=1, padding=4),
+        # First convolutional block (frozen)
+        self.conv_block1 = nn.Sequential(
+            nn.Conv1d(
+                in_channels=2,
+                out_channels=32,
+                kernel_size=9,
+                stride=1,
+                padding=4
+            ),
             nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.MaxPool1d(2),
         )
+        self.non_local1 = NONLocalBlock1D(in_channels=32)
+        freeze_layers(self.conv_block1)
+        freeze_layers(self.non_local1)
 
-        self.nl_1 = NONLocalBlock1D(in_channels=32)
-
-        # 冻结 conv_1 和 nl_1
-        freeze(self.conv_1)
-        freeze(self.nl_1)
-
-        self.conv_2 = nn.Sequential(
-            nn.Conv1d(in_channels=32, out_channels=64, kernel_size=7, stride=1, padding=3),
+        # Second convolutional block
+        self.conv_block2 = nn.Sequential(
+            nn.Conv1d(
+                in_channels=32,
+                out_channels=64,
+                kernel_size=7,
+                stride=1,
+                padding=3
+            ),
             nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.MaxPool1d(2),
         )
+        self.non_local2 = NONLocalBlock1D(in_channels=64)
 
-        self.nl_2 = NONLocalBlock1D(in_channels=64)
-
-        #冻结 conv_2
-        #freeze(self.conv_2)
-        #freeze(self.nl_2)
-
-        self.conv_3 = nn.Sequential(
-            nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
+        # Third convolutional block
+        self.conv_block3 = nn.Sequential(
+            nn.Conv1d(
+                in_channels=64,
+                out_channels=128,
+                kernel_size=3,
+                stride=1,
+                padding=1
+            ),
             nn.BatchNorm1d(128),
             nn.ReLU(),
             nn.MaxPool1d(2),
         )
 
-        self.fc1 = nn.Sequential(
+        # Fully-connected layers
+        self.fc_layers1 = nn.Sequential(
             nn.Linear(in_features=64000, out_features=1024),
             nn.ReLU(),
             nn.Dropout(0.5),
         )
-
-        self.fc2 = nn.Sequential(
+        self.fc_layers2 = nn.Sequential(
             nn.Linear(in_features=1024, out_features=256),
             nn.ReLU(),
             nn.Dropout(0.5),
-
             nn.Linear(in_features=256, out_features=1),
-            #nn.Sigmoid()  # 限制输出在 [0, 1]       #########
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> tuple:
+        """Forward pass through the network.
+        
+        Args:
+            x: Input tensor of shape (batch_size, 2, sequence_length)
+            
+        Returns:
+            tuple: (output predictions, attention weights from first NL block,
+                   attention weights from second NL block)
+        """
         batch_size = x.size(0)
 
-        feature_1 = self.conv_1(x)
+        # Feature extraction pathway
+        features = self.conv_block1(x)
+        features, attn_weights1 = self.non_local1(features)
+        
+        features = self.conv_block2(features)
+        features, attn_weights2 = self.non_local2(features)
+        
+        features = self.conv_block3(features)
+        features = features.view(batch_size, -1)
 
-        nl_feature_1, w_1 = self.nl_1(feature_1)
+        # Classification pathway
+        output = self.fc_layers1(features)
+        output = torch.clamp(
+            self.fc_layers2(output),
+            min=0,
+            max=180
+        )
 
-        feature_2 = self.conv_2(nl_feature_1)
-        nl_feature_2, w_2 = self.nl_2(feature_2)
-
-        output = self.conv_3(nl_feature_2).view(batch_size, -1)
-        output1 = self.fc1(output)
-        output2 = torch.clamp(self.fc2(output1), min=0, max=180)  # 硬性限制在 [0, 180]
-        #output2 = self.fc2(output1) * 180  # 将 [0, 1] 映射到 [0, 180]      ###########
-        #output2 = self.fc2(output1)
-        return output2, w_1, w_2
+        return output, attn_weights1, attn_weights2
 
 if __name__ == '__main__':
-    import torch
-
-    #img = torch.randn(3, 1, 28, 28)     ##随机数
-    #net = Network()
-    #out = net(img)
-    #print(out.size())
+    main()
 
