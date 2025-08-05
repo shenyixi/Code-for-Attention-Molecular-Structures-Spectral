@@ -1,136 +1,148 @@
 import torch
-import torch.utils.data as Data
-import torchvision
-from network import Network
-from torch import nn
+import torch.utils.data as data
+import torch.nn as nn
 import time
 import random
 import numpy as np
 from spectrum_dataset import SpectrumDataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
 import pandas as pd
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] ="0"
 
-def setup_seed(seed):
+# Environment configuration
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+
+def setup_seed(seed: int) -> None:
+    """Set random seed for reproducibility.
+    
+    Args:
+        seed: Random seed value
+    """
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-# 设置随机数种子
-setup_seed(2)
 
+
+# Constants
 BATCH_SIZE = 16
+NUM_EPOCHS = 200
+LEARNING_RATE = 0.001
+SAVE_DIR = "/results"
 
-if __name__ == '__main__':
 
-    print('Begin')
+def train_model():
+    """Main training procedure for the neural network."""
+    # Set random seed for reproducibility
+    setup_seed(2)
 
+    print('Training process started')
 
+    # Prepare datasets
     train_data = SpectrumDataset("train")
     test_data = SpectrumDataset("test")
 
-    train_loader = Data.DataLoader(dataset=train_data, batch_size=BATCH_SIZE, shuffle=True)
-    test_loader = Data.DataLoader(dataset=test_data, batch_size=BATCH_SIZE, shuffle=False)
+    train_loader = data.DataLoader(
+        dataset=train_data,
+        batch_size=BATCH_SIZE,
+        shuffle=True
+    )
+    test_loader = data.DataLoader(
+        dataset=test_data,
+        batch_size=BATCH_SIZE,
+        shuffle=False
+    )
 
-    train_batch_num = len(train_loader)
-    test_batch_num = len(test_loader)
-
+    # Initialize network
     net = Network()
     if torch.cuda.is_available():
-        #net = nn.DataParallel(net)   ##支持多个卡计算
         net.cuda()
 
-    
-    opt = torch.optim.Adam(net.parameters(), lr=0.001)
-    scheduler = ReduceLROnPlateau(opt,mode='min',factor=0.8, patience=10, verbose=False,min_lr=0,eps=1e-08)
+    # Initialize optimizer and scheduler
+    optimizer = torch.optim.Adam(net.parameters(), lr=LEARNING_RATE)
+    scheduler = ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        factor=0.8,
+        patience=10,
+        verbose=False,
+        min_lr=0,
+        eps=1e-08
+    )
 
-    ##loss_func = nn.CrossEntropyLoss()
-    loss_func = nn.MSELoss()
- #####################################
-    tt=[]
- ####################################
-    for epoch_index in range(200):
+    loss_function = nn.MSELoss()
+    loss_history = []
 
-        print(epoch_index, opt.param_groups[0]["lr"])
-        st = time.time()
+    # Training loop
+    for epoch_idx in range(NUM_EPOCHS):
+        print(f"Epoch {epoch_idx}, Learning rate: {optimizer.param_groups[0]['lr']}")
+        epoch_start_time = time.time()
 
-        torch.set_grad_enabled(True)
+        # Training phase
         net.train()
-        for train_batch_index, (img_batch, label_batch,mol_num_batch,Fre_num_batch,Fre_value_batch,mol_kind_batch) in enumerate(train_loader):    ##enumerate（）函数的第一位是train_batch_index，代表着序号
+        torch.set_grad_enabled(True)
+        for batch_idx, (img_batch, label_batch, *_) in enumerate(train_loader):
             if torch.cuda.is_available():
                 img_batch = img_batch.cuda()
                 label_batch = label_batch.cuda()
 
+            predict, _, _ = net(img_batch)
+            loss = loss_function(predict, label_batch)
 
-            predict, w_1, w_2 = net(img_batch)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-            try:
-                loss = loss_func(predict, label_batch)
-            except:
-                print(predict)
+        # Print epoch duration
+        epoch_time = time.time() - epoch_start_time
+        print(f"(LR:{optimizer.param_groups[0]['lr']}) Epoch time: {epoch_time:.4f}s")
 
-            net.zero_grad()
-            loss.backward()    ##反向传播
-            opt.step()         ##反向传播求梯度
-
-
-        print('(LR:%f) Time of a epoch:%.4fs' % (opt.param_groups[0]['lr'], time.time()-st))
-
-        torch.set_grad_enabled(False)
+        # Evaluation phase
         net.eval()
+        torch.set_grad_enabled(False)
         total_loss = []
-        total_acc = 0
-        total_sample = 0
-
-        for test_batch_index, (img_batch, label_batch,mol_num_batch,Fre_num_batch,Fre_value_batch,mol_kind_batch) in enumerate(test_loader):
+        
+        for batch_idx, (img_batch, label_batch, *_) in enumerate(test_loader):
             if torch.cuda.is_available():
                 img_batch = img_batch.cuda()
                 label_batch = label_batch.cuda()
 
-
-            predict, w_1, w_2 = net(img_batch)
-            loss = loss_func(predict, label_batch)
-
-            predict = predict.argmax(dim=1)
-
-
+            predict, _, _ = net(img_batch)
+            loss = loss_function(predict, label_batch)
             total_loss.append(loss)
 
-            total_sample += img_batch.size(0)
+        # Calculate and print metrics
+        mean_loss = sum(total_loss) / len(total_loss)
+        scheduler.step(mean_loss.item())
 
-        ###net.train()
+        print(f"Total loss: {sum(total_loss)} Mean loss: {mean_loss:.4f}")
+        print(f"[Test] Epoch [{epoch_idx}/{NUM_EPOCHS}] Loss: {mean_loss.item():.4f}")
 
-        mean_loss = sum(total_loss) / total_loss.__len__()
-
-        scheduler.step(mean_loss.item())  ##更新学习率
-
-        print(f"total loss: {sum(total_loss)} len: {total_loss.__len__()} mean loss: {mean_loss}")
-        print('[Test] epoch[%d/%d] loss:%.4f'
-            % (epoch_index, 200, mean_loss.item()))
-
-        weight_path = '/results/netr_mean_loss_%.4f.pth'%(mean_loss.item())
-        print('Save Net results to', weight_path,'\n')
-
-        net.cuda()
+        # Save model
+        weight_path = f'{SAVE_DIR}/netr_mean_loss_{mean_loss.item():.4f}.pth'
+        print(f'Saving model to {weight_path}\n')
         torch.save(net, weight_path)
-        
-        tt=[mean_loss.item()]
-        loss_tt=pd.DataFrame(tt)
-        loss_tt.to_csv(r'tt.csv',mode='a+',index=None,header=None)
 
-###################################################################
+        # Save loss history
+        loss_history.append(mean_loss.item())
+        pd.DataFrame(loss_history).to_csv(
+            'loss_history.csv',
+            mode='a',
+            index=False,
+            header=False
+        )
 
-        files = os.listdir("/results")
-        filename_pth = []
-        for file in files:
-            if file.endswith(".pth"):
-                filename_pth.append(file)  ##获取文件名名称
-        filename_pth.sort(key=lambda x: float(x[15:-4]))  
-        if len(filename_pth)>=6:
-            for i in range(5,len(filename_pth)):
-                os.remove("/results/"+filename_pth[i])
+        # Clean up old model files
+        model_files = [f for f in os.listdir(SAVE_DIR) if f.endswith(".pth")]
+        model_files.sort(key=lambda x: float(x[15:-4]))
+        if len(model_files) >= 6:
+            for old_model in model_files[5:]:
+                os.remove(f"{SAVE_DIR}/{old_model}")
+
+
+if __name__ == '__main__':
+    train_model()
 
