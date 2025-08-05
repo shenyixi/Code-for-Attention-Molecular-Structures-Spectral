@@ -119,5 +119,5 @@ class Network(nn.Module):
         return output, attn_weights1, attn_weights2
 
 if __name__ == '__main__':
-    main()
+    import torch
 
